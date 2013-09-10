@@ -13,6 +13,7 @@ from marionette.errors import ElementNotVisibleException
 from marionette.errors import TimeoutException
 from marionette.errors import StaleElementException
 from marionette.errors import InvalidResponseException
+from marionette.errors import JavascriptException
 import mozdevice
 
 
@@ -389,13 +390,25 @@ class GaiaDevice(object):
         self.marionette.wait_for_port()
         self.marionette.start_session()
         if self.is_android_build:
-            self.marionette.execute_async_script("""
-window.addEventListener('mozbrowserloadend', function loaded(aEvent) {
-  if (aEvent.target.src.indexOf('ftu') != -1 || aEvent.target.src.indexOf('homescreen') != -1) {
-    window.removeEventListener('mozbrowserloadend', loaded);
-    marionetteScriptFinished();
-  }
-});""", script_timeout=60000)
+            # HACK: Errors while we are booting the device are preventing us to run build until the issue is fixed
+            # catch the error and try to run the build
+
+            errors = 0
+            while errors < 10:
+                try:
+                    self.marionette.execute_async_script("""
+                window.addEventListener('mozbrowserloadend', function loaded(aEvent) {
+                  if (aEvent.target.src.indexOf('ftu') != -1 || aEvent.target.src.indexOf('homescreen') != -1) {
+                    window.removeEventListener('mozbrowserloadend', loaded);
+                    marionetteScriptFinished();
+                  }
+                });""", script_timeout=60000)
+                    return
+                except JavascriptException as e:
+                    print '\nJavascript Exception: \n %s' % e
+                    errors += 1
+            else:
+                raise Exception("To many errors at caught wile booting up the device.")
 
     def stop_b2g(self):
         if self.marionette.instance:
